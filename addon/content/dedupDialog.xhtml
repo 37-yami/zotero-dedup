@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <title>Zotero Dedup — 重复文章</title>
+  <style>
+    body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12px 16px; color: #222; }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+             border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 10px; }
+    .topbar .muted { color: #666; }
+    .global { display: flex; align-items: center; gap: 8px; margin: 6px 0 12px; }
+    #groups { display: flex; flex-direction: column; gap: 12px; }
+    .card { border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; background: #fafbfc; }
+    .card-head { display: flex; justify-content: space-between; align-items: center; }
+    .card-title { font-weight: 600; }
+    .skip-x { border: none; background: transparent; font-size: 18px; line-height: 1;
+             cursor: pointer; color: #888; padding: 0 4px; }
+    .skip-x:hover { color: #c00; }
+    .action-row { display: flex; gap: 18px; margin: 6px 0; }
+    .radio { display: inline-flex; align-items: center; gap: 4px; }
+    .items { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+    .item { display: flex; gap: 8px; align-items: flex-start; }
+    .item-info { flex: 1; }
+    .item-title { font-weight: 500; }
+    .item-meta { color: #666; font-size: 12px; }
+    .footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px;
+              border-top: 1px solid #ddd; padding-top: 10px; }
+    button { font: inherit; padding: 5px 14px; border: 1px solid #c0c4c8; border-radius: 6px;
+             background: #fff; cursor: pointer; }
+    button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+    button.danger { background: #fff; color: #c00; border-color: #c00; }
+    select { font: inherit; padding: 3px 6px; }
+    #empty { color: #666; font-style: italic; padding: 20px 0; }
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35);
+               display: flex; align-items: center; justify-content: center; z-index: 10; }
+    .overlay-box { background: #fff; border-radius: 8px; padding: 18px 20px; max-width: 360px;
+                   box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+    .overlay-btns { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Zotero Dedup — 重复文章扫描结果</h1>
+  <div class="topbar">
+    <span id="rule-info" class="muted"></span>
+    <span id="summary" class="muted"></span>
+    <span id="willdelete" class="muted"></span>
+  </div>
+
+  <div class="global">
+    <span>为所有任务都执行：</span>
+    <select id="globalAction">
+      <option value="keep-one">保留一篇</option>
+      <option value="delete-all">全部删除</option>
+      <option value="skip">跳过</option>
+    </select>
+    <button id="apply-all">应用全部</button>
+  </div>
+
+  <div id="groups"></div>
+  <div id="empty">没有需要处理的重复组（已全部跳过）。</div>
+
+  <div class="footer">
+    <button id="cancel-btn" class="danger">取消</button>
+    <button id="exec-btn" class="primary">执行删除</button>
+  </div>
+
+  <div id="confirm-overlay" class="overlay" style="display:none">
+    <div class="overlay-box">
+      <p>确定要关闭去重窗口吗？</p>
+      <div class="overlay-btns">
+        <button id="skip-current-btn">仅关闭当前组（跳过本组）</button>
+        <button id="abandon-btn" class="danger">关闭所有窗口（放弃全部）</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="application/javascript"><![CDATA[
+    'use strict';
+
+    const RULES = { doi: 'DOI', title: '仅标题', 'title-author-year': '标题+作者+年份' };
+    let GROUPS = [];
+    let ARGS = null;
+    let allowClose = false;
+
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text != null) n.textContent = text;
+      return n;
+    }
+
+    function ruleLabel(r) { return RULES[r] || r; }
+
+    async function init() {
+      ARGS = window.arguments && window.arguments[0];
+      const groups = (ARGS && ARGS.groups) || [];
+      for (const arr of groups) {
+        const items = [];
+        for (const item of arr) {
+          let numAtt = 0;
+          try { numAtt = (await item.getAttachments()).length; } catch (e) {}
+          let creators = [];
+          try { creators = item.getCreators(); } catch (e) {}
+          const authors = creators
+            .map(c => [c.lastName, c.firstName].filter(Boolean).join(' '))
+            .filter(Boolean)
+            .join(', ');
+          const year = (item.getField('date') || '').toString().replace(/\D+/g, '').slice(0, 4);
+          items.push({
+            id: item.id,
+            title: item.getField('title') || '(无标题)',
+            authors: authors,
+            year: year,
+            doi: item.getField('DOI') || '',
+            numAttach: numAtt
+          });
+        }
+        GROUPS.push({ items: items, action: 'keep-one', keepId: items[0] ? items[0].id : null });
+      }
+
+      document.getElementById('rule-info').textContent =
+        '查重规则：' + ruleLabel(ARGS ? ARGS.rule : '');
+      document.getElementById('apply-all').addEventListener('click', applyAll);
+      document.getElementById('exec-btn').addEventListener('click', execute);
+      document.getElementById('cancel-btn').addEventListener('click', requestClose);
+      document.getElementById('skip-current-btn').addEventListener('click', skipCurrent);
+      document.getElementById('abandon-btn').addEventListener('click', abandonAll);
+
+      window.addEventListener('close', (e) => {
+        if (allowClose) return;
+        e.preventDefault();
+        showConfirm();
+      });
+
+      render();
+    }
+
+    function render() {
+      const wrap = document.getElementById('groups');
+      wrap.textContent = '';
+      let shown = 0;
+      GROUPS.forEach((g, i) => {
+        if (g.action === 'skip') return;
+        shown++;
+        wrap.appendChild(buildCard(g, i));
+      });
+      document.getElementById('summary').textContent =
+        '共 ' + GROUPS.length + ' 个重复组，当前显示 ' + shown + ' 组';
+      document.getElementById('empty').style.display = shown ? 'none' : 'block';
+      updateWillDelete();
+    }
+
+    function buildCard(g, i) {
+      const card = el('div', 'card');
+
+      const head = el('div', 'card-head');
+      head.appendChild(el('span', 'card-title', '重复组 #' + (i + 1) + '（' + g.items.length + ' 篇）'));
+      const x = el('button', 'skip-x', '×');
+      x.title = '只关闭这组（跳过）';
+      x.addEventListener('click', () => skipGroup(i));
+      head.appendChild(x);
+      card.appendChild(head);
+
+      const act = el('div', 'action-row');
+      act.appendChild(makeRadio('action-' + i, 'keep-one', '保留一篇（删除其余）', g.action === 'keep-one', () => setAction(i, 'keep-one')));
+      act.appendChild(makeRadio('action-' + i, 'delete-all', '全部删除', g.action === 'delete-all', () => setAction(i, 'delete-all')));
+      act.appendChild(makeRadio('action-' + i, 'skip', '跳过', g.action === 'skip', () => setAction(i, 'skip')));
+      card.appendChild(act);
+
+      const list = el('div', 'items');
+      g.items.forEach(it => {
+        const row = el('div', 'item');
+        const keep = document.createElement('input');
+        keep.type = 'radio';
+        keep.name = 'keep-' + i;
+        keep.value = String(it.id);
+        keep.checked = (g.keepId === it.id);
+        keep.disabled = (g.action !== 'keep-one');
+        keep.addEventListener('change', () => { g.keepId = it.id; });
+        row.appendChild(keep);
+
+        const info = el('div', 'item-info');
+        info.appendChild(el('div', 'item-title', it.title));
+        const meta = [it.authors, it.year, it.doi ? 'DOI: ' + it.doi : '', it.numAttach ? '📎' + it.numAttach : '']
+          .filter(Boolean).join('   ·   ');
+        info.appendChild(el('div', 'item-meta', meta));
+        row.appendChild(info);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+      return card;
+    }
+
+    function makeRadio(name, value, label, checked, handler) {
+      const wrap = el('label', 'radio');
+      const r = document.createElement('input');
+      r.type = 'radio';
+      r.name = name;
+      r.value = value;
+      r.checked = checked;
+      r.addEventListener('change', handler);
+      wrap.appendChild(r);
+      wrap.appendChild(document.createTextNode(' ' + label));
+      return wrap;
+    }
+
+    function setAction(i, action) {
+      GROUPS[i].action = action;
+      if (action === 'keep-one' && GROUPS[i].keepId == null) {
+        GROUPS[i].keepId = GROUPS[i].items[0] ? GROUPS[i].items[0].id : null;
+      }
+      render();
+    }
+
+    function skipGroup(i) {
+      GROUPS[i].action = 'skip';
+      render();
+    }
+
+    function applyAll() {
+      const v = document.getElementById('globalAction').value;
+      GROUPS.forEach(g => {
+        g.action = v;
+        if (v === 'keep-one' && g.keepId == null) g.keepId = g.items[0] ? g.items[0].id : null;
+      });
+      render();
+    }
+
+    function updateWillDelete() {
+      let n = 0;
+      for (const g of GROUPS) {
+        if (g.action === 'delete-all') n += g.items.length;
+        else if (g.action === 'keep-one') n += Math.max(0, g.items.length - 1);
+      }
+      document.getElementById('willdelete').textContent = '将移入回收站：' + n + ' 篇';
+    }
+
+    async function execute() {
+      const ids = [];
+      for (const g of GROUPS) {
+        if (g.action === 'delete-all') {
+          for (const it of g.items) ids.push(it.id);
+        } else if (g.action === 'keep-one') {
+          const keep = (g.keepId != null) ? g.keepId : (g.items[0] ? g.items[0].id : null);
+          for (const it of g.items) if (it.id !== keep) ids.push(it.id);
+        }
+      }
+      if (!ids.length) {
+        Zotero.alert(window, 'Zotero Dedup', '没有需要删除的条目。');
+        return;
+      }
+      if (!Zotero.confirm(window, 'Zotero Dedup',
+          '确认将 ' + ids.length + ' 篇重复文献移入回收站？（之后可在回收站中恢复）')) return;
+      try {
+        await Zotero.Items.trashItems(ids);
+        allowClose = true;
+        Zotero.alert(window, 'Zotero Dedup', '已将 ' + ids.length + ' 篇重复文献移入回收站。');
+        window.close();
+      } catch (e) {
+        Zotero.alert(window, 'Zotero Dedup', '删除失败：' + e);
+      }
+    }
+
+    function requestClose() { showConfirm(); }
+
+    function showConfirm() {
+      document.getElementById('confirm-overlay').style.display = 'flex';
+    }
+    function hideConfirm() {
+      document.getElementById('confirm-overlay').style.display = 'none';
+    }
+    function skipCurrent() {
+      const idx = GROUPS.findIndex(g => g.action !== 'skip');
+      if (idx === -1) { abandonAll(); return; }
+      GROUPS[idx].action = 'skip';
+      hideConfirm();
+      render();
+    }
+    function abandonAll() {
+      allowClose = true;
+      hideConfirm();
+      window.close();
+    }
+
+    window.addEventListener('load', init);
+  ]]></script>
+</body>
+</html>

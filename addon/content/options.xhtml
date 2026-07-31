@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+<head>
+  <meta charset="utf-8" />
+  <title>Zotero Dedup 设置</title>
+  <style>
+    body { font: 13px/1.6 system-ui, sans-serif; padding: 16px 20px; }
+    h1 { font-size: 15px; }
+    .row { margin: 10px 0; }
+    label { display: inline-flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <xul:prefpane>
+    <xul:preferences>
+      <xul:preference id="pref-rule" name="extensions.zotero-dedup.rule" type="string" />
+      <xul:preference id="pref-scope" name="extensions.zotero-dedup.scope" type="string" />
+    </xul:preferences>
+
+    <h1>Zotero Dedup 设置</h1>
+
+    <div class="row">
+      <label>查重规则：
+        <xul:menulist preference="pref-rule">
+          <xul:menupopup>
+            <xul:menuitem label="按 DOI（最严格）" value="doi" />
+            <xul:menuitem label="标题 + 作者 + 年份（推荐）" value="title-author-year" />
+            <xul:menuitem label="仅按标题" value="title" />
+          </xul:menupopup>
+        </xul:menulist>
+      </label>
+    </div>
+
+    <div class="row">
+      <label>默认扫描范围：
+        <xul:menulist preference="pref-scope">
+          <xul:menupopup>
+            <xul:menuitem label="当前选中的收藏夹" value="collection" />
+            <xul:menuitem label="当前选中条目所在分类" value="selected" />
+          </xul:menupopup>
+        </xul:menulist>
+      </label>
+    </div>
+
+    <p style="color:#666">提示：「开始扫描」位于 Zotero 顶部「工具」菜单中。删除只会将文献移入回收站，可在回收站中恢复。</p>
+  </xul:prefpane>
+</body>
+</html>
