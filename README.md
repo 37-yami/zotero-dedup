@@ -31,27 +31,7 @@
 
 > 若浏览器把 `.xpi` 当作文本，请右键「另存为」或下载后手动选择文件安装。
 
-## 从源码构建
 
-需要本地有 `zip` 命令（Linux/macOS 自带，Windows 可用 Git Bash）：
-
-```bash
-node build.mjs
-# 产物：build/zotero-dedup.xpi
-```
-
-然后把生成的 `build/zotero-dedup.xpi` 按上面的方式安装即可。
-
-## 发布到 GitHub（含自动更新）
-
-1. 修改 `manifest.json`、`update.json`、README 中的 `37-yami` 为你自己的 GitHub 用户名；
-2. 打标签并发布 Release：
-   ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
-   # 在 GitHub 创建 Release v0.1.0，上传 build/zotero-dedup.xpi
-   ```
-3. 插件会通过 `update_url` 指向的 `update.json` 自动检查更新。
 
 ## 目录结构
 
