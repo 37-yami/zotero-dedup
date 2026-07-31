@@ -25,7 +25,7 @@
 
 ## 安装
 
-1. 到 [Releases](https://github.com/YOUR_GITHUB_USERNAME/zotero-dedup/releases) 下载 `zotero-dedup.xpi`；
+1. 到 [Releases](https://github.com/37-yami/zotero-dedup/releases) 下载 `zotero-dedup.xpi`；
 2. 在 Zotero 中：`工具` → `插件`（或 `Add-ons`）→ 齿轮图标 → `Install Add-on From File...` → 选择下载的 `.xpi`；
 3. 重启 Zotero。
 
@@ -44,7 +44,7 @@ node build.mjs
 
 ## 发布到 GitHub（含自动更新）
 
-1. 修改 `manifest.json`、`update.json`、README 中的 `YOUR_GITHUB_USERNAME` 为你自己的 GitHub 用户名；
+1. 修改 `manifest.json`、`update.json`、README 中的 `37-yami` 为你自己的 GitHub 用户名；
 2. 打标签并发布 Release：
    ```bash
    git tag v0.1.0
