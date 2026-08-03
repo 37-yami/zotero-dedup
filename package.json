@@ -1,6 +1,6 @@
 {
   "name": "zotero-dedup",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zotero plugin to scan the current collection/category for duplicate items and move them to Trash.",
   "private": true,
   "scripts": {

@@ -4,6 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Zotero Dedup — 重复文章</title>
+  <script src="chrome://zotero/content/include.js"></script>
   <style>
     body { font: 13px/1.5 "Segoe UI", system-ui, sans-serif; margin: 0; padding: 12px 16px; color: #222; }
     h1 { font-size: 16px; margin: 0 0 4px; }
@@ -11,17 +12,19 @@
              border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-bottom: 10px; }
     .topbar .muted { color: #666; }
     .global { display: flex; align-items: center; gap: 8px; margin: 6px 0 12px; }
-    #groups { display: flex; flex-direction: column; gap: 12px; }
+    .global .warning { color: #b45309; font-size: 12px; margin-left: 8px; }
+    #groups { display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 200px); overflow-y: auto; padding-right: 4px; }
     .card { border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; background: #fafbfc; }
     .card-head { display: flex; justify-content: space-between; align-items: center; }
     .card-title { font-weight: 600; }
+    .card-subtitle { color: #666; font-size: 12px; margin-top: 2px; }
     .skip-x { border: none; background: transparent; font-size: 18px; line-height: 1;
              cursor: pointer; color: #888; padding: 0 4px; }
     .skip-x:hover { color: #c00; }
-    .action-row { display: flex; gap: 18px; margin: 6px 0; }
+    .action-row { display: flex; gap: 18px; margin: 6px 0; flex-wrap: wrap; }
     .radio { display: inline-flex; align-items: center; gap: 4px; }
     .items { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-    .item { display: flex; gap: 8px; align-items: flex-start; }
+    .item { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; }
     .item-info { flex: 1; }
     .item-title { font-weight: 500; }
     .item-meta { color: #666; font-size: 12px; }
@@ -29,15 +32,23 @@
               border-top: 1px solid #ddd; padding-top: 10px; }
     button { font: inherit; padding: 5px 14px; border: 1px solid #c0c4c8; border-radius: 6px;
              background: #fff; cursor: pointer; }
+    button:hover { background: #f5f5f5; }
     button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+    button.primary:hover { background: #1d4ed8; }
     button.danger { background: #fff; color: #c00; border-color: #c00; }
+    button.danger:hover { background: #fef2f2; }
     select { font: inherit; padding: 3px 6px; }
-    #empty { color: #666; font-style: italic; padding: 20px 0; }
+    #empty { color: #666; font-style: italic; padding: 20px 0; text-align: center; }
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35);
                display: flex; align-items: center; justify-content: center; z-index: 10; }
-    .overlay-box { background: #fff; border-radius: 8px; padding: 18px 20px; max-width: 360px;
+    .overlay-box { background: #fff; border-radius: 8px; padding: 18px 20px; max-width: 400px;
                    box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+    .overlay-box p { margin: 0 0 8px; }
     .overlay-btns { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+    .overlay-btns button { width: 100%; }
+    .progress { text-align: center; padding: 40px 20px; color: #666; }
+    .progress-bar { width: 200px; height: 6px; background: #eee; border-radius: 3px; margin: 12px auto; overflow: hidden; }
+    .progress-fill { height: 100%; background: #2563eb; width: 0%; transition: width .2s; }
   </style>
 </head>
 <body>
@@ -51,15 +62,22 @@
   <div class="global">
     <span>为所有任务都执行：</span>
     <select id="globalAction">
-      <option value="keep-one">保留一篇</option>
+      <option value="keep-one">保留一篇（删除其余）</option>
       <option value="delete-all">全部删除</option>
       <option value="skip">跳过</option>
     </select>
     <button id="apply-all">应用全部</button>
+    <span id="global-warning" class="warning" style="display:none">⚠ 全部删除将移除所有重复条目（含本应保留的），请谨慎操作</span>
   </div>
 
-  <div id="groups"></div>
-  <div id="empty">没有需要处理的重复组（已全部跳过）。</div>
+  <div id="progress" class="progress">
+    <div>正在加载重复条目详情...</div>
+    <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+    <div id="progress-text" class="muted" style="font-size:12px">0 / 0</div>
+  </div>
+
+  <div id="groups" style="display:none"></div>
+  <div id="empty" style="display:none">没有需要处理的重复组（已全部跳过）。</div>
 
   <div class="footer">
     <button id="cancel-btn" class="danger">取消</button>
@@ -68,10 +86,12 @@
 
   <div id="confirm-overlay" class="overlay" style="display:none">
     <div class="overlay-box">
-      <p>确定要关闭去重窗口吗？</p>
+      <p><strong>确定要关闭去重窗口吗？</strong></p>
+      <p style="color:#666;font-size:12px">未执行删除的重复组将被跳过，不会有任何条目被删除。</p>
       <div class="overlay-btns">
-        <button id="skip-current-btn">仅关闭当前组（跳过本组）</button>
-        <button id="abandon-btn" class="danger">关闭所有窗口（放弃全部）</button>
+        <button id="skip-all-btn">跳过所有未处理的组并关闭</button>
+        <button id="continue-btn">继续处理</button>
+        <button id="abandon-btn" class="danger">放弃所有更改并关闭</button>
       </div>
     </div>
   </div>
@@ -92,10 +112,98 @@
     }
     function ruleLabel(r) { return RULES[r] || r; }
 
+    // Safe alert/confirm that works in dialog windows
+    function safeAlert(msg) {
+      try {
+        if (Zotero && Zotero.alert && typeof Zotero.alert === 'function') {
+          Zotero.alert(window, 'Zotero Dedup', msg);
+        } else {
+          alert(msg);
+        }
+      } catch (e) {
+        try { alert(msg); } catch (e2) { console.error(msg); }
+      }
+    }
+    function safeConfirm(msg) {
+      try {
+        if (Zotero && Zotero.confirm && typeof Zotero.confirm === 'function') {
+          return Zotero.confirm(window, 'Zotero Dedup', msg);
+        } else {
+          return confirm(msg);
+        }
+      } catch (e) {
+        try { return confirm(msg); } catch (e2) { return true; }
+      }
+    }
+
+    // Move items to trash using the most compatible approach
+    async function trashItems(ids) {
+      if (!ids || !ids.length) return 0;
+
+      // Try Zotero.Items.trash / trashItems first (if available)
+      try {
+        if (Zotero.Items && typeof Zotero.Items.trash === 'function') {
+          await Zotero.Items.trash(ids);
+          return ids.length;
+        }
+      } catch (e) {
+        Zotero.debug('[Zotero Dedup] Zotero.Items.trash failed: ' + e);
+      }
+      try {
+        if (Zotero.Items && typeof Zotero.Items.trashItems === 'function') {
+          await Zotero.Items.trashItems(ids);
+          return ids.length;
+        }
+      } catch (e) {
+        Zotero.debug('[Zotero Dedup] Zotero.Items.trashItems failed: ' + e);
+      }
+
+      // Fallback: trash individually using trash() method
+      let count = 0;
+      for (const id of ids) {
+        try {
+          const item = Zotero.Items.get(id);
+          if (item && !item.deleted) {
+            // Try item.trash() method first (Zotero 7+)
+            if (typeof item.trash === 'function') {
+              await item.trash();
+              count++;
+              continue;
+            }
+            // Fallback: set trash property and save
+            item.deleted = 1;
+            await item.saveTx();
+            count++;
+          }
+        } catch (e) {
+          Zotero.debug('[Zotero Dedup] Failed to trash item ' + id + ': ' + e);
+        }
+      }
+      return count;
+    }
+
     async function init() {
       ARGS = window.arguments && window.arguments[0];
       const groups = (ARGS && ARGS.groups) || [];
-      for (const g of groups) {
+      const rule = ARGS ? ARGS.rule : '';
+      const includePDF = ARGS ? ARGS.includePDF : false;
+
+      document.getElementById('rule-info').textContent =
+        '查重规则：' + ruleLabel(rule) + (includePDF ? '（含 PDF 内容匹配）' : '');
+
+      // Process groups with progress indicator
+      GROUPS = [];
+      const total = groups.length;
+      let processed = 0;
+
+      const updateProgress = () => {
+        const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+        document.getElementById('progress-fill').style.width = pct + '%';
+        document.getElementById('progress-text').textContent = processed + ' / ' + total;
+      };
+
+      for (let gi = 0; gi < groups.length; gi++) {
+        const g = groups[gi];
         if (g.type === 'attachments') {
           // A single item carrying two or more byte-identical PDFs.
           let pTitle = '(未知条目)';
@@ -123,35 +231,58 @@
           // Cross-item duplicate group.
           const items = g.items ? g.items : g;
           const arr = [];
-          for (const item of items) {
-            let numAtt = 0;
-            try { numAtt = (await item.getAttachments()).length; } catch (e) {}
+          // Fetch attachment counts in parallel for this group
+          const attachPromises = items.map(item =>
+            item.getAttachments().then(a => a.length).catch(() => 0)
+          );
+          const attachCounts = await Promise.all(attachPromises);
+
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
             let creators = [];
             try { creators = item.getCreators(); } catch (e) {}
             const authors = creators
               .map(c => [c.lastName, c.firstName].filter(Boolean).join(' '))
               .filter(Boolean)
               .join(', ');
-            const year = (item.getField('date') || '').toString().replace(/\D+/g, '').slice(0, 4);
+            const dateStr = item.getField('date') || '';
+            const yearMatch = dateStr.toString().match(/(\d{4})/);
+            const year = yearMatch ? yearMatch[1] : '';
             arr.push({
               id: item.id,
               title: item.getField('title') || '(无标题)',
               authors: authors,
               year: year,
               doi: item.getField('DOI') || '',
-              numAttach: numAtt
+              numAttach: attachCounts[i] || 0
             });
           }
           GROUPS.push({ type: 'items', items: arr, action: 'keep-one', keepId: arr[0] ? arr[0].id : null });
         }
+        processed++;
+        if (gi % 5 === 0 || gi === groups.length - 1) {
+          updateProgress();
+          // Yield to UI thread
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
 
-      document.getElementById('rule-info').textContent = '查重规则：' + ruleLabel(ARGS ? ARGS.rule : '');
+      // Hide progress, show groups
+      document.getElementById('progress').style.display = 'none';
+      document.getElementById('groups').style.display = 'flex';
+
       document.getElementById('apply-all').addEventListener('click', applyAll);
       document.getElementById('exec-btn').addEventListener('click', execute);
       document.getElementById('cancel-btn').addEventListener('click', requestClose);
-      document.getElementById('skip-current-btn').addEventListener('click', skipCurrent);
+      document.getElementById('skip-all-btn').addEventListener('click', skipAllAndClose);
+      document.getElementById('continue-btn').addEventListener('click', hideConfirm);
       document.getElementById('abandon-btn').addEventListener('click', abandonAll);
+
+      // Show warning for "delete-all" in global
+      document.getElementById('globalAction').addEventListener('change', (e) => {
+        document.getElementById('global-warning').style.display =
+          e.target.value === 'delete-all' ? 'inline' : 'none';
+      });
 
       window.addEventListener('close', (e) => {
         if (allowClose) return;
@@ -209,7 +340,9 @@
     function buildItemCard(g, i) {
       const card = el('div', 'card');
       const head = el('div', 'card-head');
-      head.appendChild(el('span', 'card-title', '重复组 #' + (i + 1) + '（' + g.items.length + ' 篇文献）'));
+      const titleWrap = el('div');
+      titleWrap.appendChild(el('span', 'card-title', '重复组 #' + (i + 1) + '（' + g.items.length + ' 篇文献）'));
+      head.appendChild(titleWrap);
       head.appendChild(makeX(i));
       card.appendChild(head);
 
@@ -228,8 +361,11 @@
     function buildAttachCard(g, i) {
       const card = el('div', 'card');
       const head = el('div', 'card-head');
-      head.appendChild(el('span', 'card-title',
-        '重复 PDF #' + (i + 1) + '（条目：' + g.parentTitle + '，' + g.pdfs.length + ' 个内容相同的 PDF）'));
+      const titleWrap = el('div');
+      titleWrap.appendChild(el('span', 'card-title',
+        '重复 PDF #' + (i + 1) + '（' + g.pdfs.length + ' 个内容相同的 PDF）'));
+      titleWrap.appendChild(el('div', 'card-subtitle', '所属条目：' + g.parentTitle));
+      head.appendChild(titleWrap);
       head.appendChild(makeX(i));
       card.appendChild(head);
 
@@ -300,6 +436,7 @@
     }
 
     async function execute() {
+      Zotero.debug('[Zotero Dedup] execute() called');
       const ids = [];
       for (const g of GROUPS) {
         if (g.action === 'skip') continue;
@@ -319,32 +456,36 @@
           }
         }
       }
+      Zotero.debug('[Zotero Dedup] items to delete: ' + ids.length);
       if (!ids.length) {
-        Zotero.alert(window, 'Zotero Dedup', '没有需要删除的条目。');
+        safeAlert('没有需要删除的条目。');
         return;
       }
-      if (!Zotero.confirm(window, 'Zotero Dedup',
-          '确认将 ' + ids.length + ' 项（重复文献或重复 PDF）移入回收站？（之后可在回收站中恢复）')) return;
+      if (!safeConfirm('确认将 ' + ids.length + ' 项（重复文献或重复 PDF）移入回收站？\n\n之后可在回收站中恢复。')) return;
       try {
-        await Zotero.Items.trashItems(ids);
+        const count = await trashItems(ids);
+        Zotero.debug('[Zotero Dedup] trashed ' + count + ' items');
         allowClose = true;
-        Zotero.alert(window, 'Zotero Dedup', '已将 ' + ids.length + ' 项移入回收站。');
+        safeAlert('已将 ' + count + ' 项移入回收站。');
         window.close();
       } catch (e) {
-        Zotero.alert(window, 'Zotero Dedup', '删除失败：' + e);
+        Zotero.debug('[Zotero Dedup] execute error: ' + e);
+        safeAlert('删除失败：' + e);
       }
     }
 
     function requestClose() { showConfirm(); }
     function showConfirm() { document.getElementById('confirm-overlay').style.display = 'flex'; }
     function hideConfirm() { document.getElementById('confirm-overlay').style.display = 'none'; }
-    function skipCurrent() {
-      const idx = GROUPS.findIndex(g => g.action !== 'skip');
-      if (idx === -1) { abandonAll(); return; }
-      GROUPS[idx].action = 'skip';
+
+    function skipAllAndClose() {
+      // Mark all remaining groups as skipped
+      GROUPS.forEach(g => { if (g.action !== 'skip') g.action = 'skip'; });
+      allowClose = true;
       hideConfirm();
-      render();
+      window.close();
     }
+
     function abandonAll() {
       allowClose = true;
       hideConfirm();

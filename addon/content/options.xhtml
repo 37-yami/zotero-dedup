@@ -1,54 +1,116 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<root xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+<!-- Zotero Dedup preferences - XUL fragment for Zotero.PreferencePanes.register -->
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
       xmlns:html="http://www.w3.org/1999/xhtml">
+  <groupbox>
+    <label><html:h2 style="margin:0 0 8px 0;font-size:16px;font-weight:600">Zotero Dedup 设置</html:h2></label>
+    <vbox style="padding: 4px 0;">
+      <hbox align="center">
+        <label value="查重规则：" style="width: 120px;"/>
+        <menulist id="zotero-dedup-rule">
+          <menupopup>
+            <menuitem label="标题 + 作者 + 年份（推荐）" value="title-author-year"/>
+            <menuitem label="仅按标题归一化" value="title"/>
+            <menuitem label="按 DOI（最严格，无 DOI 不参与匹配）" value="doi"/>
+            <menuitem label="仅按 PDF 内容（MD5）" value="pdf"/>
+          </menupopup>
+        </menulist>
+      </hbox>
 
-  <html:div class="dedup-prefs">
-    <html:h2>Zotero Dedup 设置</html:h2>
+      <hbox align="center" style="margin-top: 10px;">
+        <label value="扫描范围：" style="width: 120px;"/>
+        <menulist id="zotero-dedup-scope">
+          <menupopup>
+            <menuitem label="当前收藏夹（含子分类）" value="collection-recursive"/>
+            <menuitem label="当前收藏夹（仅当前分类）" value="collection"/>
+            <menuitem label="当前选中条目所在分类" value="selected"/>
+          </menupopup>
+        </menulist>
+      </hbox>
 
-    <html:div class="row">
-      <html:label>查重规则：
-        <html:select id="rule">
-          <html:option value="title-author-year">标题 + 作者 + 年份（推荐）</html:option>
-          <html:option value="title">仅按标题归一化</html:option>
-          <html:option value="doi">按 DOI（最严格，无 DOI 不参与匹配）</html:option>
-          <html:option value="pdf">仅按 PDF 内容（MD5，识别内容相同但文件名不同的 PDF）</html:option>
-        </html:select>
-      </html:label>
-    </html:div>
+      <hbox align="start" style="margin-top: 10px;">
+        <checkbox id="zotero-dedup-includepdf"
+                  label="同时按 PDF 内容匹配"
+                  style="margin-top: 2px;"/>
+      </hbox>
+      <description style="margin-left: 24px; color: #666; font-size: 12px; width: 400px;">
+        开启后，除了所选的元数据规则外，还会根据 PDF 文件内容（MD5）识别重复。
+        即使两篇文献元数据不同，只要 PDF 内容完全相同也会被判定为重复。
+      </description>
+    </vbox>
+  </groupbox>
 
-    <html:div class="row">
-      <html:label>默认扫描范围：
-        <html:select id="scope">
-          <html:option value="collection">当前选中的收藏夹</html:option>
-          <html:option value="selected">当前选中条目所在分类</html:option>
-        </html:select>
-      </html:label>
-    </html:div>
-
-    <html:p class="hint">「开始扫描」位于 Zotero 顶部「工具」菜单。删除仅移入回收站，可在回收站中恢复。</html:p>
-  </html:div>
-
-  <html:style><![CDATA[
-    .dedup-prefs { padding: 16px 20px; font: 13px/1.6 system-ui, sans-serif; }
-    .dedup-prefs h2 { font-size: 15px; margin: 0 0 12px; }
-    .dedup-prefs .row { margin: 10px 0; }
-    .dedup-prefs label { display: inline-flex; align-items: center; gap: 8px; }
-    .dedup-prefs select { font: inherit; padding: 3px 6px; }
-    .dedup-prefs .hint { color: #666; }
-  ]]></html:style>
+  <description style="margin-top: 16px; color: #666; font-size: 12px;">
+    「开始扫描」位于 Zotero 顶部「工具」菜单。删除仅移入回收站，可在回收站中恢复。
+  </description>
 
   <script type="application/javascript"><![CDATA[
-    'use strict';
-    const PREFS = {
-      rule: 'extensions.zotero-dedup.rule',
-      scope: 'extensions.zotero-dedup.scope'
+    var ZoteroDedup_Preferences = {
+      PREF_PREFIX: 'extensions.zotero-dedup.',
+
+      init: function() {
+        var self = this;
+        Zotero.debug('[Zotero Dedup] Preferences panel init start');
+
+        // Load current preferences and set UI values
+        try {
+          var rule = Zotero.Prefs.get(self.PREF_PREFIX + 'rule', true) || 'title-author-year';
+          var ruleList = document.getElementById('zotero-dedup-rule');
+          if (ruleList) {
+            ruleList.value = rule;
+            ruleList.addEventListener('command', function() {
+              Zotero.Prefs.set(self.PREF_PREFIX + 'rule', ruleList.value, true);
+              Zotero.debug('[Zotero Dedup] Pref rule set to: ' + ruleList.value);
+            });
+            Zotero.debug('[Zotero Dedup] Rule menulist initialized with value: ' + rule);
+          } else {
+            Zotero.debug('[Zotero Dedup] Rule menulist not found');
+          }
+        } catch (e) {
+          Zotero.debug('[Zotero Dedup] Failed to init rule pref: ' + e);
+        }
+
+        try {
+          var scope = Zotero.Prefs.get(self.PREF_PREFIX + 'scope', true) || 'collection-recursive';
+          var scopeList = document.getElementById('zotero-dedup-scope');
+          if (scopeList) {
+            scopeList.value = scope;
+            scopeList.addEventListener('command', function() {
+              Zotero.Prefs.set(self.PREF_PREFIX + 'scope', scopeList.value, true);
+              Zotero.debug('[Zotero Dedup] Pref scope set to: ' + scopeList.value);
+            });
+            Zotero.debug('[Zotero Dedup] Scope menulist initialized with value: ' + scope);
+          }
+        } catch (e) {
+          Zotero.debug('[Zotero Dedup] Failed to init scope pref: ' + e);
+        }
+
+        try {
+          var includePDF = Zotero.Prefs.get(self.PREF_PREFIX + 'includePDF', true);
+          if (includePDF === undefined || includePDF === null) includePDF = true;
+          var checkbox = document.getElementById('zotero-dedup-includepdf');
+          if (checkbox) {
+            checkbox.checked = !!includePDF;
+            checkbox.addEventListener('command', function() {
+              Zotero.Prefs.set(self.PREF_PREFIX + 'includePDF', checkbox.checked, true);
+              Zotero.debug('[Zotero Dedup] Pref includePDF set to: ' + checkbox.checked);
+            });
+            Zotero.debug('[Zotero Dedup] IncludePDF checkbox initialized with value: ' + includePDF);
+          }
+        } catch (e) {
+          Zotero.debug('[Zotero Dedup] Failed to init includePDF pref: ' + e);
+        }
+
+        Zotero.debug('[Zotero Dedup] Preferences panel initialized');
+      }
     };
-    function apply() {
-      document.getElementById('rule').value = Zotero.Prefs.get(PREFS.rule, true) || 'title-author-year';
-      document.getElementById('scope').value = Zotero.Prefs.get(PREFS.scope, true) || 'collection';
+
+    // Auto-init when the fragment is loaded
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      ZoteroDedup_Preferences.init();
+    } else {
+      document.addEventListener('DOMContentLoaded', function() {
+        ZoteroDedup_Preferences.init();
+      });
     }
-    document.getElementById('rule').addEventListener('change', e => Zotero.Prefs.set(PREFS.rule, e.target.value, true));
-    document.getElementById('scope').addEventListener('change', e => Zotero.Prefs.set(PREFS.scope, e.target.value, true));
-    apply();
   ]]></script>
-</root>
+</vbox>

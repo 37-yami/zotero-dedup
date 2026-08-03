@@ -2,3 +2,9 @@ node_modules/
 build/
 .DS_Store
 *.xpi
+
+# local debug / build artifacts
+*.log
+report/
+.trae-html-share-packages/
+_check_syntax.js
