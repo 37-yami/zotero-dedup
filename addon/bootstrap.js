@@ -4,18 +4,22 @@
 const PLUGIN_ID = 'zotero-dedup@example.com';
 const CONTENT_BASE = 'chrome://dedup/content/';
 const MENU_ID = 'zotero-dedup-menuitem';
+const TOOLS_POPUP_ID = 'menu_ToolsPopup';
 
 function log(msg) {
   try { Zotero.debug('[Zotero Dedup] ' + msg); } catch (e) {}
 }
 
-function startup({ id, version, rootURI }, reason) {
+function startup(data, reason) {
+  data = data || {};
+  const rootURI = data.rootURI;
   try {
     const { Services } = ChromeUtils.import('resource://gre/modules/Services.jsm');
     const aomStartup = Components.classes['@mozilla.org/addons/addon-manager-startup;1']
       .getService(Components.interfaces.amIAddonManagerStartup);
     const manifestURI = Services.io.newURI(rootURI + 'chrome.manifest');
     aomStartup.registerChrome(manifestURI, [...aomStartup.decodeManifest(manifestURI)]);
+    log('chrome registered');
   } catch (e) {
     log('chrome registration failed: ' + e);
   }
@@ -26,46 +30,36 @@ function startup({ id, version, rootURI }, reason) {
         pluginID: PLUGIN_ID,
         src: CONTENT_BASE + 'options.xhtml',
         label: 'Zotero Dedup',
-        helpURL: 'https://github.com/YOUR_GITHUB_USERNAME/zotero-dedup#readme'
+        helpURL: 'https://github.com/37-yami/zotero-dedup#readme'
       });
     }
   } catch (e) {
     log('pref pane register failed: ' + e);
   }
+
+  // Inject into any main windows that are already open (covers "enabled without restart").
+  try {
+    if (typeof Zotero.getMainWindows === 'function') {
+      for (const win of Zotero.getMainWindows()) {
+        if (win && win.document) addMenuItem(win.document);
+      }
+    }
+  } catch (e) {
+    log('inject into open windows failed: ' + e);
+  }
 }
 
 function onMainWindowLoad({ window }) {
   try {
-    const doc = window.document;
-    // Locate the Tools menu popup.
-    let toolsPopup = doc.getElementById('menu_tools');
-    if (toolsPopup && toolsPopup.tagName === 'menu') {
-      toolsPopup = toolsPopup.menupopup || toolsPopup.querySelector('menupopup');
-    } else {
-      toolsPopup = doc.getElementById('menu_tools-popup') || toolsPopup;
-    }
-    if (!toolsPopup) {
-      log('Tools menu popup not found');
-      return;
-    }
-    if (doc.getElementById(MENU_ID)) return;
-
-    const menuitem = doc.createXULElement('menuitem');
-    menuitem.id = MENU_ID;
-    menuitem.setAttribute('label', '开始扫描（去重）');
-    menuitem.setAttribute('tooltiptext', '扫描当前范围中的重复文章');
-    menuitem.addEventListener('command', () => scan(window));
-    toolsPopup.appendChild(menuitem);
-    log('menu item added');
+    addMenuItem(window.document);
   } catch (e) {
-    log('add menu failed: ' + e);
+    log('onMainWindowLoad add failed: ' + e);
   }
 }
 
 function onMainWindowUnload({ window }) {
   try {
-    const mi = window.document.getElementById(MENU_ID);
-    if (mi) mi.remove();
+    removeMenuItem(window.document);
   } catch (e) {}
 }
 
@@ -73,22 +67,78 @@ function shutdown() {}
 function install() {}
 function uninstall() {}
 
+// ---------- menu ----------
+
+function getToolsPopup(doc) {
+  let popup = doc.getElementById(TOOLS_POPUP_ID);
+  if (popup) return popup;
+  const menu = doc.getElementById('menu_Tools');
+  if (menu) return menu.menupopup || menu.querySelector('menupopup');
+  return null;
+}
+
+function addMenuItem(doc) {
+  if (!doc) return;
+  if (doc.getElementById(MENU_ID)) return;
+  const popup = getToolsPopup(doc);
+  if (!popup) {
+    log('Tools popup not found');
+    return;
+  }
+  const menuitem = doc.createXULElement('menuitem');
+  menuitem.id = MENU_ID;
+  menuitem.setAttribute('label', '开始扫描（去重）');
+  menuitem.setAttribute('tooltiptext', '扫描当前范围中的重复文章');
+  menuitem.addEventListener('command', () => scan(doc.defaultView));
+  popup.appendChild(menuitem);
+  log('menu item added');
+
+  // Re-add on every popup opening in case Zotero rebuilds the menu contents.
+  popup.addEventListener('popupshowing', () => {
+    if (!doc.getElementById(MENU_ID)) addMenuItem(doc);
+  });
+}
+
+function removeMenuItem(doc) {
+  if (!doc) return;
+  const mi = doc.getElementById(MENU_ID);
+  if (mi) mi.remove();
+}
+
 // ---------- helpers ----------
 
 function normalize(s) {
-  return (s || '').toString().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function itemKey(item, rule) {
-  if (rule === 'doi') {
-    const doi = (item.getField('DOI') || '').trim().toLowerCase();
-    return doi ? 'doi:' + doi : null;
-  }
+// Build a set of candidate match-keys for one item.
+// Two items are considered duplicates if they share at least one candidate key.
+// This is forgiving (the user reviews every group before deleting) while still
+// honouring the selected rule's strictness.
+function candidateKeys(item, rule) {
+  const keys = new Set();
   const title = normalize(item.getField('title'));
-  if (rule === 'title') {
-    return title ? 't:' + title : null;
+  if (!title) return keys; // a title is required for any meaningful match
+
+  const doi = (item.getField('DOI') || '').trim().toLowerCase();
+  if (doi) keys.add('doi:' + doi);
+
+  if (rule === 'doi') {
+    // DOI-only matching: only items that actually carry a DOI can match.
+    return keys;
   }
-  // title-author-year
+
+  if (rule === 'title') {
+    keys.add('t:' + title);
+    return keys;
+  }
+
+  // rule === 'title-author-year'
   let authors = '';
   try {
     const creators = item.getCreators();
@@ -98,21 +148,59 @@ function itemKey(item, rule) {
       .sort()
       .join(',');
   } catch (e) {}
+
   const year = (item.getField('date') || '').toString().replace(/\D+/g, '').slice(0, 4);
-  const key = [title, authors, year].join('|');
-  return key ? key : null;
+
+  if (authors && year) {
+    keys.add('tay:' + title + '|' + authors + '|' + year);
+  } else if (authors) {
+    keys.add('ta:' + title + '|' + authors);
+  } else if (year) {
+    keys.add('ty:' + title + '|' + year);
+  } else {
+    // Neither author nor year available: fall back to title-only so that
+    // two metadata-less duplicates (e.g. PDF imports) still group together.
+    keys.add('t:' + title);
+  }
+  return keys;
 }
 
 function detectDuplicates(items, rule) {
-  const map = new Map();
+  // Union-find: items sharing any candidate key belong to the same group.
+  const parent = new Map();
+  const find = x => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)));
+      x = parent.get(x);
+    }
+    return x;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  const keyOwner = new Map();
   for (const item of items) {
-    const key = itemKey(item, rule);
-    if (!key) continue;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(item);
+    if (!parent.has(item.id)) parent.set(item.id, item.id);
+    for (const k of candidateKeys(item, rule)) {
+      if (keyOwner.has(k)) {
+        union(item.id, keyOwner.get(k));
+      } else {
+        keyOwner.set(k, item.id);
+      }
+    }
   }
+
+  const groupsMap = new Map();
+  for (const item of items) {
+    const root = find(item.id);
+    if (!groupsMap.has(root)) groupsMap.set(root, []);
+    groupsMap.get(root).push(item);
+  }
+
   const groups = [];
-  for (const arr of map.values()) {
+  for (const arr of groupsMap.values()) {
     if (arr.length >= 2) groups.push(arr);
   }
   return groups;
@@ -172,8 +260,15 @@ async function scan(window) {
     const rule = Zotero.Prefs.get('extensions.zotero-dedup.rule', true) || 'title-author-year';
     const groups = detectDuplicates(items, rule);
 
+    log('scan: ' + items.length + ' item(s) scanned, ' + groups.length + ' duplicate group(s) found (rule=' + rule + ')');
+
     if (!groups.length) {
-      Zotero.alert(window, 'Zotero Dedup', '未发现重复文章（当前规则：' + ruleLabel(rule) + '）。');
+      Zotero.alert(
+        window,
+        'Zotero Dedup',
+        '未发现重复文章。\n\n已扫描 ' + items.length + ' 条条目，规则：' + ruleLabel(rule) +
+          '。\n\n如果确认存在重复，请尝试在设置中把「匹配规则」改为「仅标题」，或把「扫描范围」改为「选中文献所在分类」。'
+      );
       return;
     }
 

@@ -3,8 +3,8 @@
     "zotero-dedup@example.com": {
       "updates": [
         {
-          "version": "0.1.0",
-          "update_link": "https://github.com/37-yami/zotero-dedup/releases/download/v0.1.0/zotero-dedup.xpi",
+          "version": "0.1.1",
+          "update_link": "https://github.com/37-yami/zotero-dedup/releases/download/v0.1.1/zotero-dedup.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "7.0",
