@@ -29,9 +29,12 @@ function startup(data, reason) {
       Zotero.PreferencePanes.register({
         pluginID: PLUGIN_ID,
         src: CONTENT_BASE + 'options.xhtml',
+        id: 'zotero-dedup-prefs',
         label: 'Zotero Dedup',
         helpURL: 'https://github.com/37-yami/zotero-dedup#readme'
-      });
+      })
+        .then(() => log('pref pane registered'))
+        .catch(e => log('pref pane register failed: ' + e));
     }
   } catch (e) {
     log('pref pane register failed: ' + e);

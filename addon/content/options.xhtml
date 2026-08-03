@@ -1,41 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <meta charset="utf-8" />
-  <title>Zotero Dedup 设置</title>
-  <style>
-    body { font: 13px/1.6 system-ui, sans-serif; padding: 16px 20px; }
-    h1 { font-size: 15px; }
-    .row { margin: 10px 0; }
-    label { display: inline-flex; align-items: center; gap: 8px; }
-    select { font: inherit; padding: 3px 6px; }
-  </style>
-</head>
-<body>
-  <h1>Zotero Dedup 设置</h1>
+<root xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
 
-  <div class="row">
-    <label>查重规则：
-      <select id="rule">
-        <option value="title-author-year">标题 + 作者 + 年份（推荐）</option>
-        <option value="title">仅按标题归一化</option>
-        <option value="doi">按 DOI（最严格，无 DOI 不参与匹配）</option>
-        <option value="pdf">仅按 PDF 内容（MD5，识别内容相同但文件名不同的 PDF）</option>
-      </select>
-    </label>
-  </div>
+  <html:div class="dedup-prefs">
+    <html:h2>Zotero Dedup 设置</html:h2>
 
-  <div class="row">
-    <label>默认扫描范围：
-      <select id="scope">
-        <option value="collection">当前选中的收藏夹</option>
-        <option value="selected">当前选中条目所在分类</option>
-      </select>
-    </label>
-  </div>
+    <html:div class="row">
+      <html:label>查重规则：
+        <html:select id="rule">
+          <html:option value="title-author-year">标题 + 作者 + 年份（推荐）</html:option>
+          <html:option value="title">仅按标题归一化</html:option>
+          <html:option value="doi">按 DOI（最严格，无 DOI 不参与匹配）</html:option>
+          <html:option value="pdf">仅按 PDF 内容（MD5，识别内容相同但文件名不同的 PDF）</html:option>
+        </html:select>
+      </html:label>
+    </html:div>
 
-  <p style="color:#666">「开始扫描」位于 Zotero 顶部「工具」菜单中。删除只会将文献移入回收站，可在回收站中恢复。</p>
+    <html:div class="row">
+      <html:label>默认扫描范围：
+        <html:select id="scope">
+          <html:option value="collection">当前选中的收藏夹</html:option>
+          <html:option value="selected">当前选中条目所在分类</html:option>
+        </html:select>
+      </html:label>
+    </html:div>
+
+    <html:p class="hint">「开始扫描」位于 Zotero 顶部「工具」菜单。删除仅移入回收站，可在回收站中恢复。</html:p>
+  </html:div>
+
+  <html:style><![CDATA[
+    .dedup-prefs { padding: 16px 20px; font: 13px/1.6 system-ui, sans-serif; }
+    .dedup-prefs h2 { font-size: 15px; margin: 0 0 12px; }
+    .dedup-prefs .row { margin: 10px 0; }
+    .dedup-prefs label { display: inline-flex; align-items: center; gap: 8px; }
+    .dedup-prefs select { font: inherit; padding: 3px 6px; }
+    .dedup-prefs .hint { color: #666; }
+  ]]></html:style>
 
   <script type="application/javascript"><![CDATA[
     'use strict';
@@ -51,5 +51,4 @@
     document.getElementById('scope').addEventListener('change', e => Zotero.Prefs.set(PREFS.scope, e.target.value, true));
     apply();
   ]]></script>
-</body>
-</html>
+</root>
