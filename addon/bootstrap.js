@@ -14,7 +14,12 @@ function startup(data, reason) {
   data = data || {};
   const rootURI = data.rootURI;
   try {
-    const { Services } = ChromeUtils.import('resource://gre/modules/Services.jsm');
+    let Services;
+    try {
+      ({ Services } = ChromeUtils.importESModule('resource://gre/modules/Services.sys.mjs'));
+    } catch (e) {
+      ({ Services } = ChromeUtils.import('resource://gre/modules/Services.jsm'));
+    }
     const aomStartup = Components.classes['@mozilla.org/addons/addon-manager-startup;1']
       .getService(Components.interfaces.amIAddonManagerStartup);
     const manifestURI = Services.io.newURI(rootURI + 'chrome.manifest');
