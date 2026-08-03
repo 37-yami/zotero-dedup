@@ -216,11 +216,13 @@ async function detectDuplicates(items, rule) {
   }
 
   const groups = [];
+  let itemGroups = 0;
   for (const arr of groupsMap.values()) {
-    if (arr.length >= 2) groups.push({ type: 'items', items: arr });
+    if (arr.length >= 2) { groups.push({ type: 'items', items: arr }); itemGroups++; }
   }
 
   // Within-item duplicate PDFs: one item carrying two or more byte-identical PDFs.
+  let attachGroups = 0;
   for (const [id, pdfs] of pdfsByItem) {
     const byMd5 = new Map();
     for (const p of pdfs) {
@@ -228,10 +230,11 @@ async function detectDuplicates(items, rule) {
       byMd5.get(p.md5).push(p.id);
     }
     for (const arr of byMd5.values()) {
-      if (arr.length >= 2) groups.push({ type: 'attachments', itemId: id, dupAttachmentIds: arr });
+      if (arr.length >= 2) { groups.push({ type: 'attachments', itemId: id, dupAttachmentIds: arr }); attachGroups++; }
     }
   }
 
+  log('detect: ' + groups.length + ' group(s) = ' + itemGroups + ' item-group(s) + ' + attachGroups + ' duplicate-PDF group(s)');
   return groups;
 }
 
