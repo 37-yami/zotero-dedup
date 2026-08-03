@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Dedup",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "在当前收藏夹或选中条目所在分类中扫描重复文章，并移入回收站。",
   "id": "zotero-dedup@example.com",
   "homepage_url": "https://github.com/37-yami/zotero-dedup",

@@ -79,7 +79,7 @@
   <script type="application/javascript"><![CDATA[
     'use strict';
 
-    const RULES = { doi: 'DOI', title: '仅标题', 'title-author-year': '标题+作者+年份' };
+    const RULES = { doi: 'DOI', title: '仅标题', 'title-author-year': '标题+作者+年份', pdf: '仅 PDF 内容' };
     let GROUPS = [];
     let ARGS = null;
     let allowClose = false;
@@ -90,38 +90,63 @@
       if (text != null) n.textContent = text;
       return n;
     }
-
     function ruleLabel(r) { return RULES[r] || r; }
 
     async function init() {
       ARGS = window.arguments && window.arguments[0];
       const groups = (ARGS && ARGS.groups) || [];
-      for (const arr of groups) {
-        const items = [];
-        for (const item of arr) {
-          let numAtt = 0;
-          try { numAtt = (await item.getAttachments()).length; } catch (e) {}
-          let creators = [];
-          try { creators = item.getCreators(); } catch (e) {}
-          const authors = creators
-            .map(c => [c.lastName, c.firstName].filter(Boolean).join(' '))
-            .filter(Boolean)
-            .join(', ');
-          const year = (item.getField('date') || '').toString().replace(/\D+/g, '').slice(0, 4);
-          items.push({
-            id: item.id,
-            title: item.getField('title') || '(无标题)',
-            authors: authors,
-            year: year,
-            doi: item.getField('DOI') || '',
-            numAttach: numAtt
+      for (const g of groups) {
+        if (g.type === 'attachments') {
+          // A single item carrying two or more byte-identical PDFs.
+          let pTitle = '(未知条目)';
+          try {
+            const parent = Zotero.Items.get(g.itemId);
+            if (parent) pTitle = parent.getField('title') || '(无标题)';
+          } catch (e) {}
+          const pdfs = [];
+          for (const aid of (g.dupAttachmentIds || [])) {
+            let name = '(PDF #' + aid + ')';
+            try {
+              const att = Zotero.Items.get(aid);
+              if (att) name = att.getField('title') || att.attachmentFilename || name;
+            } catch (e) {}
+            pdfs.push({ id: aid, title: name });
+          }
+          GROUPS.push({
+            type: 'attachments',
+            parentTitle: pTitle,
+            pdfs: pdfs,
+            action: 'keep-one',
+            keepId: pdfs[0] ? pdfs[0].id : null
           });
+        } else {
+          // Cross-item duplicate group.
+          const items = g.items ? g.items : g;
+          const arr = [];
+          for (const item of items) {
+            let numAtt = 0;
+            try { numAtt = (await item.getAttachments()).length; } catch (e) {}
+            let creators = [];
+            try { creators = item.getCreators(); } catch (e) {}
+            const authors = creators
+              .map(c => [c.lastName, c.firstName].filter(Boolean).join(' '))
+              .filter(Boolean)
+              .join(', ');
+            const year = (item.getField('date') || '').toString().replace(/\D+/g, '').slice(0, 4);
+            arr.push({
+              id: item.id,
+              title: item.getField('title') || '(无标题)',
+              authors: authors,
+              year: year,
+              doi: item.getField('DOI') || '',
+              numAttach: numAtt
+            });
+          }
+          GROUPS.push({ type: 'items', items: arr, action: 'keep-one', keepId: arr[0] ? arr[0].id : null });
         }
-        GROUPS.push({ items: items, action: 'keep-one', keepId: items[0] ? items[0].id : null });
       }
 
-      document.getElementById('rule-info').textContent =
-        '查重规则：' + ruleLabel(ARGS ? ARGS.rule : '');
+      document.getElementById('rule-info').textContent = '查重规则：' + ruleLabel(ARGS ? ARGS.rule : '');
       document.getElementById('apply-all').addEventListener('click', applyAll);
       document.getElementById('exec-btn').addEventListener('click', execute);
       document.getElementById('cancel-btn').addEventListener('click', requestClose);
@@ -144,23 +169,48 @@
       GROUPS.forEach((g, i) => {
         if (g.action === 'skip') return;
         shown++;
-        wrap.appendChild(buildCard(g, i));
+        wrap.appendChild(g.type === 'attachments' ? buildAttachCard(g, i) : buildItemCard(g, i));
       });
-      document.getElementById('summary').textContent =
-        '共 ' + GROUPS.length + ' 个重复组，当前显示 ' + shown + ' 组';
+      document.getElementById('summary').textContent = '共 ' + GROUPS.length + ' 个重复组，当前显示 ' + shown + ' 组';
       document.getElementById('empty').style.display = shown ? 'none' : 'block';
       updateWillDelete();
     }
 
-    function buildCard(g, i) {
-      const card = el('div', 'card');
-
-      const head = el('div', 'card-head');
-      head.appendChild(el('span', 'card-title', '重复组 #' + (i + 1) + '（' + g.items.length + ' 篇）'));
+    function makeX(i) {
       const x = el('button', 'skip-x', '×');
       x.title = '只关闭这组（跳过）';
       x.addEventListener('click', () => skipGroup(i));
-      head.appendChild(x);
+      return x;
+    }
+
+    function itemRow(o, i, name, keepId, onKeep) {
+      const row = el('div', 'item');
+      const keep = document.createElement('input');
+      keep.type = 'radio';
+      keep.name = name;
+      keep.value = String(o.id);
+      keep.checked = (keepId === o.id);
+      keep.disabled = (GROUPS[i].action !== 'keep-one');
+      keep.addEventListener('change', onKeep);
+      row.appendChild(keep);
+
+      const info = el('div', 'item-info');
+      info.appendChild(el('div', 'item-title', o.title));
+      const meta = [];
+      if (o.authors) meta.push(o.authors);
+      if (o.year) meta.push(o.year);
+      if (o.doi) meta.push('DOI: ' + o.doi);
+      if (o.numAttach != null) meta.push('📎' + o.numAttach);
+      info.appendChild(el('div', 'item-meta', meta.filter(Boolean).join('   ·   ')));
+      row.appendChild(info);
+      return row;
+    }
+
+    function buildItemCard(g, i) {
+      const card = el('div', 'card');
+      const head = el('div', 'card-head');
+      head.appendChild(el('span', 'card-title', '重复组 #' + (i + 1) + '（' + g.items.length + ' 篇文献）'));
+      head.appendChild(makeX(i));
       card.appendChild(head);
 
       const act = el('div', 'action-row');
@@ -170,25 +220,27 @@
       card.appendChild(act);
 
       const list = el('div', 'items');
-      g.items.forEach(it => {
-        const row = el('div', 'item');
-        const keep = document.createElement('input');
-        keep.type = 'radio';
-        keep.name = 'keep-' + i;
-        keep.value = String(it.id);
-        keep.checked = (g.keepId === it.id);
-        keep.disabled = (g.action !== 'keep-one');
-        keep.addEventListener('change', () => { g.keepId = it.id; });
-        row.appendChild(keep);
+      g.items.forEach(it => list.appendChild(itemRow(it, i, 'keep-' + i, g.keepId, () => { g.keepId = it.id; })));
+      card.appendChild(list);
+      return card;
+    }
 
-        const info = el('div', 'item-info');
-        info.appendChild(el('div', 'item-title', it.title));
-        const meta = [it.authors, it.year, it.doi ? 'DOI: ' + it.doi : '', it.numAttach ? '📎' + it.numAttach : '']
-          .filter(Boolean).join('   ·   ');
-        info.appendChild(el('div', 'item-meta', meta));
-        row.appendChild(info);
-        list.appendChild(row);
-      });
+    function buildAttachCard(g, i) {
+      const card = el('div', 'card');
+      const head = el('div', 'card-head');
+      head.appendChild(el('span', 'card-title',
+        '重复 PDF #' + (i + 1) + '（条目：' + g.parentTitle + '，' + g.pdfs.length + ' 个内容相同的 PDF）'));
+      head.appendChild(makeX(i));
+      card.appendChild(head);
+
+      const act = el('div', 'action-row');
+      act.appendChild(makeRadio('action-' + i, 'keep-one', '保留一篇（删除多余 PDF）', g.action === 'keep-one', () => setAction(i, 'keep-one')));
+      act.appendChild(makeRadio('action-' + i, 'delete-all', '全部删除（删除这些 PDF）', g.action === 'delete-all', () => setAction(i, 'delete-all')));
+      act.appendChild(makeRadio('action-' + i, 'skip', '跳过', g.action === 'skip', () => setAction(i, 'skip')));
+      card.appendChild(act);
+
+      const list = el('div', 'items');
+      g.pdfs.forEach(p => list.appendChild(itemRow(p, i, 'keepatt-' + i, g.keepId, () => { g.keepId = p.id; })));
       card.appendChild(list);
       return card;
     }
@@ -209,7 +261,8 @@
     function setAction(i, action) {
       GROUPS[i].action = action;
       if (action === 'keep-one' && GROUPS[i].keepId == null) {
-        GROUPS[i].keepId = GROUPS[i].items[0] ? GROUPS[i].items[0].id : null;
+        const src = GROUPS[i].type === 'attachments' ? GROUPS[i].pdfs : GROUPS[i].items;
+        GROUPS[i].keepId = src[0] ? src[0].id : null;
       }
       render();
     }
@@ -223,7 +276,10 @@
       const v = document.getElementById('globalAction').value;
       GROUPS.forEach(g => {
         g.action = v;
-        if (v === 'keep-one' && g.keepId == null) g.keepId = g.items[0] ? g.items[0].id : null;
+        if (v === 'keep-one' && g.keepId == null) {
+          const src = g.type === 'attachments' ? g.pdfs : g.items;
+          g.keepId = src[0] ? src[0].id : null;
+        }
       });
       render();
     }
@@ -231,20 +287,36 @@
     function updateWillDelete() {
       let n = 0;
       for (const g of GROUPS) {
-        if (g.action === 'delete-all') n += g.items.length;
-        else if (g.action === 'keep-one') n += Math.max(0, g.items.length - 1);
+        if (g.action === 'skip') continue;
+        if (g.type === 'attachments') {
+          if (g.action === 'delete-all') n += g.pdfs.length;
+          else if (g.action === 'keep-one') n += Math.max(0, g.pdfs.length - 1);
+        } else {
+          if (g.action === 'delete-all') n += g.items.length;
+          else if (g.action === 'keep-one') n += Math.max(0, g.items.length - 1);
+        }
       }
-      document.getElementById('willdelete').textContent = '将移入回收站：' + n + ' 篇';
+      document.getElementById('willdelete').textContent = '将移入回收站：' + n + ' 项';
     }
 
     async function execute() {
       const ids = [];
       for (const g of GROUPS) {
-        if (g.action === 'delete-all') {
-          for (const it of g.items) ids.push(it.id);
-        } else if (g.action === 'keep-one') {
-          const keep = (g.keepId != null) ? g.keepId : (g.items[0] ? g.items[0].id : null);
-          for (const it of g.items) if (it.id !== keep) ids.push(it.id);
+        if (g.action === 'skip') continue;
+        if (g.type === 'attachments') {
+          if (g.action === 'delete-all') {
+            for (const p of g.pdfs) ids.push(p.id);
+          } else {
+            const keep = (g.keepId != null) ? g.keepId : (g.pdfs[0] ? g.pdfs[0].id : null);
+            for (const p of g.pdfs) if (p.id !== keep) ids.push(p.id);
+          }
+        } else {
+          if (g.action === 'delete-all') {
+            for (const it of g.items) ids.push(it.id);
+          } else {
+            const keep = (g.keepId != null) ? g.keepId : (g.items[0] ? g.items[0].id : null);
+            for (const it of g.items) if (it.id !== keep) ids.push(it.id);
+          }
         }
       }
       if (!ids.length) {
@@ -252,11 +324,11 @@
         return;
       }
       if (!Zotero.confirm(window, 'Zotero Dedup',
-          '确认将 ' + ids.length + ' 篇重复文献移入回收站？（之后可在回收站中恢复）')) return;
+          '确认将 ' + ids.length + ' 项（重复文献或重复 PDF）移入回收站？（之后可在回收站中恢复）')) return;
       try {
         await Zotero.Items.trashItems(ids);
         allowClose = true;
-        Zotero.alert(window, 'Zotero Dedup', '已将 ' + ids.length + ' 篇重复文献移入回收站。');
+        Zotero.alert(window, 'Zotero Dedup', '已将 ' + ids.length + ' 项移入回收站。');
         window.close();
       } catch (e) {
         Zotero.alert(window, 'Zotero Dedup', '删除失败：' + e);
@@ -264,13 +336,8 @@
     }
 
     function requestClose() { showConfirm(); }
-
-    function showConfirm() {
-      document.getElementById('confirm-overlay').style.display = 'flex';
-    }
-    function hideConfirm() {
-      document.getElementById('confirm-overlay').style.display = 'none';
-    }
+    function showConfirm() { document.getElementById('confirm-overlay').style.display = 'flex'; }
+    function hideConfirm() { document.getElementById('confirm-overlay').style.display = 'none'; }
     function skipCurrent() {
       const idx = GROUPS.findIndex(g => g.action !== 'skip');
       if (idx === -1) { abandonAll(); return; }

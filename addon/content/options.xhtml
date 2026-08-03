@@ -18,9 +18,10 @@
   <div class="row">
     <label>查重规则：
       <select id="rule">
-        <option value="doi">按 DOI（最严格，无 DOI 不参与匹配）</option>
         <option value="title-author-year">标题 + 作者 + 年份（推荐）</option>
         <option value="title">仅按标题归一化</option>
+        <option value="doi">按 DOI（最严格，无 DOI 不参与匹配）</option>
+        <option value="pdf">仅按 PDF 内容（MD5，识别内容相同但文件名不同的 PDF）</option>
       </select>
     </label>
   </div>
